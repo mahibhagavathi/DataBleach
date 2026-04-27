@@ -58,16 +58,28 @@ with st.sidebar:
 
     phase = st.session_state.phase
     phases = ["📥 Input", "🔍 Analysis", "🛠️ Fixing", "✅ Results"]
+    phase_keys = ["input", "analysis", "fixing", "results"]
     phase_map = {"input": 0, "analysis": 1, "fixing": 2, "results": 3}
     current = phase_map.get(phase, 0)
 
+    st.markdown("**Steps**")
     for i, p in enumerate(phases):
         if i < current:
-            st.markdown(f"~~{p}~~ ✓")
+            # Completed step — clickable to go back
+            if st.button(f"↩ {p} ✓", key=f"nav_{i}", use_container_width=True):
+                st.session_state.phase = phase_keys[i]
+                st.rerun()
         elif i == current:
-            st.markdown(f"**→ {p}**")
+            st.markdown(
+                f"<div style='background:#e8f0fe;border-left:3px solid #0d6efd;"
+                f"padding:0.4rem 0.6rem;border-radius:4px;font-weight:600'>→ {p}</div>",
+                unsafe_allow_html=True
+            )
         else:
-            st.markdown(f"<span style='color:#aaa'>{p}</span>", unsafe_allow_html=True)
+            st.markdown(
+                f"<div style='color:#aaa;padding:0.4rem 0.6rem'>{p}</div>",
+                unsafe_allow_html=True
+            )
 
     if phase in ("fixing", "results") and st.session_state.issues:
         st.divider()
