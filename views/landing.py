@@ -12,7 +12,7 @@ def show_landing():
 
     with tab_upload:
         st.markdown("**Drag and drop your CSV file below.**")
-        st.caption("Supports CSV files up to 50 MB. Your data never leaves your session.")
+        st.caption("Supports CSV files up to 200 MB. Your data never leaves your session.")
         uploaded = st.file_uploader("", type=["csv"], label_visibility="collapsed")
 
         if uploaded:
