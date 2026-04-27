@@ -89,24 +89,46 @@ def show_fixing():
         st.caption(f"AI Confidence: {conf_color} {conf}")
 
     with col_right:
-        st.markdown("**📊 Before/After Preview**")
+        st.markdown("**📊 Before / After Preview**")
         df_raw = st.session_state.df_raw
         col_name = iss["column"]
 
-        if col_name in df_raw.columns and col_name != "ALL" and col_name != "Multiple":
+        if col_name not in ("ALL", "Multiple") and col_name in df_raw.columns:
             try:
-                before = df_raw[[col_name]].head(8).rename(columns={col_name: "Before"})
-                after_df = apply_fix(df_raw.head(8), iss)
+                # Grab rows where the issue is visible (non-null, interesting values)
+                col_series = df_raw[col_name]
+                # Try to find rows that will actually change
+                sample = df_raw[[col_name]].copy().head(50)
+                after_df = apply_fix(sample.copy(), iss)
+
                 if col_name in after_df.columns:
-                    after = after_df[[col_name]].rename(columns={col_name: "After"})
+                    before_vals = sample[col_name].astype(str).tolist()
+                    after_vals  = after_df[col_name].astype(str).tolist()
                 else:
-                    after = pd.DataFrame({"After": ["(column removed)"] * len(before)})
-                preview = pd.concat([before, after], axis=1)
-                st.dataframe(preview, use_container_width=True, height=280)
+                    before_vals = sample[col_name].astype(str).tolist()
+                    after_vals  = ["(removed)"] * len(before_vals)
+
+                # Only show rows where something changed
+                changed = [(b, a) for b, a in zip(before_vals, after_vals) if b != a]
+                unchanged = [(b, a) for b, a in zip(before_vals, after_vals) if b == a]
+
+                if changed:
+                    show_rows = changed[:6]
+                    preview_df = pd.DataFrame(show_rows, columns=["Before", "After"])
+                    st.caption(f"Showing {len(show_rows)} rows where values change:")
+                    st.dataframe(preview_df, use_container_width=True, height=260)
+                else:
+                    # Show sample anyway even if no visible diff in first 50
+                    preview_df = pd.DataFrame({
+                        "Before": before_vals[:6],
+                        "After": after_vals[:6],
+                    })
+                    st.caption("Sample of column values (fix applies to whole dataset):")
+                    st.dataframe(preview_df, use_container_width=True, height=260)
             except Exception:
                 st.caption("Preview not available for this fix type.")
         else:
-            st.caption("This fix affects the whole dataset — no column preview available.")
+            st.caption("This fix affects the whole dataset — column-level preview not applicable.")
 
     st.divider()
 
