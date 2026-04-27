@@ -170,26 +170,46 @@ def detect_issues(df: pd.DataFrame) -> list:
 
     # 11. Impossible / out-of-range values
     for col in df.columns:
-        if df[col].dtype in [np.float64, np.int64, float, int]:
-            q1, q99 = df[col].quantile(0.01), df[col].quantile(0.99)
-            extreme = ((df[col] < q1 * 10) | (df[col] > q99 * 10)) & df[col].notna()
-            n_extreme = extreme.sum()
-            if n_extreme > 0 and q99 > 0:
-                add("high", "Extreme / Impossible Values", col,
-                    f"{n_extreme} values far outside expected range in `{col}`. Min: {df[col].min()}, Max: {df[col].max()}.",
-                    "Cap at 1st/99th percentile or investigate and remove if confirmed erroneous.",
-                    "outliers")
+        numeric_col = pd.to_numeric(df[col], errors="coerce")
+        if numeric_col.notna().sum() < 10:
+            continue
+        q1, q99 = numeric_col.quantile(0.01), numeric_col.quantile(0.99)
+        iqr = numeric_col.quantile(0.75) - numeric_col.quantile(0.25)
+        # Skip low-range columns like ratings/scores (range < 20) — not "impossible"
+        col_range = numeric_col.max() - numeric_col.min()
+        if col_range < 20 and numeric_col.max() <= 100:
+            continue
+        if q99 <= 0:
+            continue
+        extreme = ((numeric_col < q1 * 10) | (numeric_col > q99 * 10)) & numeric_col.notna()
+        n_extreme = int(extreme.sum())
+        if n_extreme > 0:
+            add("high", "Extreme / Impossible Values", col,
+                f"{n_extreme} values far outside expected range in `{col}`. Min: {numeric_col.min()}, Max: {numeric_col.max()}.",
+                "Cap at 1st/99th percentile or investigate and remove if confirmed erroneous.",
+                "outliers")
 
     # 12. Negative values in non-negative columns
+    NON_NEG_KEYWORDS = [
+        "price", "amount", "fare", "sales", "revenue", "cost", "age",
+        "distance", "count", "qty", "quantity", "year", "income", "salary",
+        "wage", "score", "rating", "duration", "hours", "days", "months",
+        "experience", "tenure", "size", "weight", "height", "population",
+        "beds", "physicians", "mortality", "expectancy", "rate", "percent",
+    ]
     for col in df.columns:
-        if df[col].dtype in [np.float64, np.int64, float, int]:
-            if any(k in col.lower() for k in ["price", "amount", "fare", "sales", "revenue", "cost", "age", "distance", "count", "qty", "quantity"]):
-                n_neg = (df[col] < 0).sum()
-                if n_neg > 0:
-                    add("high", "Negative Values in Non-Negative Column", col,
-                        f"{n_neg} negative values found in `{col}` where only positive values make sense.",
-                        "Replace negatives with NaN and investigate source data.",
-                        "validity")
+        if not any(k in col.lower() for k in NON_NEG_KEYWORDS):
+            continue
+        numeric_vals = pd.to_numeric(df[col], errors="coerce").dropna()
+        if len(numeric_vals) == 0:
+            continue
+        n_neg = (numeric_vals < 0).sum()
+        if n_neg > 0:
+            neg_examples = numeric_vals[numeric_vals < 0].head(3).tolist()
+            add("high", "Negative Values in Non-Negative Column", col,
+                f"{n_neg} negative value(s) in `{col}` where only positive values make sense. Examples: {neg_examples}.",
+                "Replace negatives with NaN and investigate source data.",
+                "validity")
 
     # 13. Future dates in historical columns
     for col in df.columns:
