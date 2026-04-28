@@ -5,18 +5,12 @@ DEMO_DATASETS = {
     "👥 HR Attrition (IBM)": "hr",
 }
 
-FIRST_NAMES = [
-    "james", "MARY", "John", "patricia", "ROBERT", "jennifer", "Michael",
-    "linda", "WILLIAM", "barbara", "david", "Elizabeth", "richard", "SUSAN",
-    "joseph", "Jessica", "thomas", "Sarah", "charles", "KAREN", "Priya",
-    "rahul", "ANANYA", "vikram", "deepa", "AMIT", "pooja", "SANJAY",
-]
-LAST_NAMES = [
-    "smith", "JOHNSON", "Williams", "brown", "JONES", "garcia", "Miller",
-    "Davis", "WILSON", "moore", "taylor", "Anderson", "THOMAS", "jackson",
-    "white", "HARRIS", "martin", "Thompson", "PATEL", "sharma", "KUMAR",
-    "singh", "Reddy", "MEHTA", "nair", "IYER", "Das", "bose",
-]
+FIRST_NAMES = ["James", "mary", "JOHN", "Patricia", "robert", "JENNIFER",
+               "Michael", "linda", "WILLIAM", "barbara", "Priya", "rahul",
+               "ANANYA", "vikram", "deepa", "AMIT", "pooja", "sanjay"]
+LAST_NAMES  = ["smith", "JOHNSON", "Williams", "brown", "JONES", "garcia",
+               "Miller", "Davis", "WILSON", "moore", "PATEL", "sharma",
+               "KUMAR", "singh", "Reddy", "mehta", "NAIR", "iyer"]
 
 
 def load_demo(key: str) -> pd.DataFrame:
@@ -27,53 +21,80 @@ def load_demo(key: str) -> pd.DataFrame:
 
 
 def _hr(n):
-    departments = ["Sales", "R&D", "HR", "sales", "R&d", "hr", "Finance", "finance", "FINANCE"]
-    education   = ["Bachelor", "Master", "PhD", "bachelor's", "MASTER", "phd", "High School", "high school"]
-    gender      = ["Male", "Female", "male", "M", "F", "FEMALE", "female", "m", "f"]
-    job_titles  = ["Manager", "Analyst", "Engineer", "Director", "Associate",
-                   "manager", "ANALYST", "engineer", "DIRECTOR", "associate"]
+    # Inconsistent representations of the SAME category — this is the data quality issue
+    departments = ["Sales", "sales", "SALES",
+                   "R&D", "r&d", "R and D",
+                   "HR", "hr", "H.R.",
+                   "Finance", "finance", "FINANCE"]
 
-    rng = np.random.default_rng(42)
+    job_titles  = ["Manager", "manager", "MANAGER",
+                   "Analyst", "analyst", "ANALYST",
+                   "Engineer", "engineer", "ENGINEER",
+                   "Director", "director", "DIRECTOR"]
+
+    education   = ["Bachelor", "bachelor", "BACHELOR",
+                   "Master", "master", "MASTER",
+                   "PhD", "phd", "PHD",
+                   "High School", "high school", "HIGH SCHOOL"]
+
+    # Gender: only male/female but inconsistent format
+    gender = ["Male", "male", "MALE", "Female", "female", "FEMALE"]
 
     rows = []
     for i in range(n):
-        fn = np.random.choice(FIRST_NAMES)
-        ln = np.random.choice(LAST_NAMES)
-        name = f"{fn} {ln}"
+        fn   = np.random.choice(FIRST_NAMES)
+        ln   = np.random.choice(LAST_NAMES)
+        name = f"{fn} {ln}"  # mixed case e.g. "mary JOHNSON" or "JOHN smith"
 
-        # Duplicate employee IDs every 40 rows
-        emp_id = f"EMP-{i:04d}" if i % 40 != 0 else f"EMP-{i-1:04d}"
+        emp_id = f"EMP-{i:04d}" if i % 40 != 0 else f"EMP-{i-1:04d}"  # duplicate IDs
 
-        # Age: mostly normal, some impossible
-        age = int(np.random.randint(22, 60)) if i % 35 != 0 else 150
-
-        # Monthly income: first 50 rows null (high null rate demo)
-        income = float(np.random.randint(2000, 20000)) if i >= 50 else None
-
-        # Years at company: some negative
-        years = int(np.random.randint(0, 35)) if i % 30 != 0 else -5
-
-        # Phone: mix of formats
-        if i % 4 == 0:
-            phone = f"({np.random.randint(200,999)}) {np.random.randint(100,999)}-{np.random.randint(1000,9999)}"
-        elif i % 4 == 1:
-            phone = f"{np.random.randint(2000000000,9999999999)}"
-        elif i % 4 == 2:
-            phone = f"+91-{np.random.randint(7000000000,9999999999)}"
+        # Age: realistic range with some clearly wrong entries
+        if i % 60 == 0:
+            age = np.random.choice([0, 999, -3])   # clearly bad data
         else:
-            phone = "not provided" if i % 15 == 0 else f"{np.random.randint(100,999)}-{np.random.randint(1000,9999)}"
+            age = int(np.random.randint(22, 58))
+
+        # Monthly income: realistic by job level — no impossible outliers
+        job_lvl = int(np.random.randint(1, 6))
+        base_income = {1: 3000, 2: 5000, 3: 8000, 4: 12000, 5: 18000}
+        income = float(int(base_income[job_lvl] + np.random.randint(-500, 500)))
+        income = None if i < 40 else income   # first 40 rows null
+
+        # Years at company: realistic 0-35, with occasional clearly bad values
+        if i % 80 == 0:
+            years = np.random.choice([75, 99, -1])  # clearly bad
+        else:
+            years = int(np.random.randint(0, 36))
+
+        # Phone: 4 string formats all meaning the same thing — stored as strings, never floats
+        area = np.random.randint(200, 999)
+        mid  = np.random.randint(100, 999)
+        last = np.random.randint(1000, 9999)
+        r = i % 4
+        if r == 0:
+            phone = f"({area}) {mid}-{last}"           # (321) 456-7890
+        elif r == 1:
+            phone = f"+1-{area}-{mid}-{last}"          # +1-321-456-7890
+        elif r == 2:
+            phone = f"+1{area}{mid:03d}{last}"         # +13214567890
+        else:
+            phone = "not provided" if i % 20 == 0 else f"{area}{mid:03d}{last}"  # 3214567890
+
+        # Hire date: mixed formats
+        base_date = pd.Timestamp("2015-01-01") + pd.Timedelta(days=int(np.random.randint(0, 3000)))
+        if i % 3 == 0:
+            hire_date = base_date.strftime("%Y-%m-%d")   # ISO
+        elif i % 3 == 1:
+            hire_date = base_date.strftime("%d/%m/%Y")   # UK format
+        else:
+            hire_date = base_date.strftime("%B %d, %Y")  # e.g. "March 15, 2019"
 
         # Email: some invalid
         email = f"{fn.lower()}.{ln.lower()}@company.com" if i % 20 != 0 else "invalid-email"
 
-        # Salary band: inconsistent format
-        band_num = np.random.randint(1, 6)
-        if i % 3 == 0:
-            salary_band = f"Band {band_num}"
-        elif i % 3 == 1:
-            salary_band = f"band{band_num}"
-        else:
-            salary_band = f"BAND-{band_num}"
+        # Salary band: same band written 3 different ways
+        band_num = job_lvl
+        band = np.random.choice([f"Band {band_num}", f"band{band_num}", f"BAND-{band_num}"])
 
         rows.append({
             "employee_id":        emp_id,
@@ -83,24 +104,23 @@ def _hr(n):
             "department":         str(np.random.choice(departments)),
             "job_title":          str(np.random.choice(job_titles)),
             "education":          str(np.random.choice(education)),
-            "salary_band":        salary_band,
+            "salary_band":        band,
             "monthly_income":     income,
             "years_at_company":   years,
             "job_satisfaction":   int(np.random.randint(1, 5)),
             "attrition":          str(np.random.choice(["Yes", "No", "yes", "NO", "1", "0"])),
             "over_time":          str(np.random.choice(["Yes", "No", "YES", "no"])),
             "performance_rating": int(np.random.randint(1, 5)),
-            "job_level":          int(np.random.randint(1, 6)),
+            "job_level":          job_lvl,
             "phone":              phone,
             "email":              email,
+            "hire_date":          hire_date,
             "currency":           "USD",
-            "hire_date":          str((pd.Timestamp("2015-01-01") + pd.Timedelta(days=int(np.random.randint(0, 3000)))).date()) if i % 25 != 0 else "01/15/2018",
         })
 
     df = pd.DataFrame(rows)
 
-    # Inject ~8 exact duplicate rows
+    # Inject 8 exact duplicate rows
     dupes = df.iloc[[10, 25, 50, 75, 100, 150, 200, 250]].copy()
     df = pd.concat([df, dupes], ignore_index=True)
-
     return df
