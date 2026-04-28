@@ -68,11 +68,14 @@ def _get_fix_options(iss: dict, df: pd.DataFrame) -> list[dict]:
             {"label": "Drop rows with negative values",       "action": "neg_drop_rows"},
         ]
 
-    elif title in ("Extreme / Impossible Values",):
+    elif title in ("Extreme / Impossible Values", "Impossible / Out-of-Range Values"):
         opts = [
-            {"label": "Cap at 1st/99th percentile",  "action": "cap_percentile"},
-            {"label": "Replace extremes with NaN",   "action": "extreme_to_nan"},
-            {"label": "Drop rows with extreme values","action": "extreme_drop_rows"},
+            {"label": "Cap — clamp the value to the nearest valid boundary (e.g. age 999 → 110)",
+             "action": "cap_percentile"},
+            {"label": "Replace with blank — mark the bad value as missing (NaN) so it can be imputed later",
+             "action": "extreme_to_nan"},
+            {"label": "Drop rows — delete the entire row containing the bad value",
+             "action": "extreme_drop_rows"},
         ]
 
     elif title == "Inconsistent Category Casing":
@@ -320,16 +323,19 @@ def show_fixing():
 
 
 def _record(decision, idx, issues, custom_val=None, action="default"):
-    issues[idx]["decision"]           = decision
+    issues[idx]["decision"]            = decision
     issues[idx]["selected_fix_action"] = action
     if custom_val:
         issues[idx]["custom_value"] = custom_val
 
-    if decision in ("apply", "custom"):
-        df = st.session_state.df_clean.copy()
-        df = apply_fix(df, issues[idx])
-        st.session_state.df_clean = df
+    # Rebuild df_clean from scratch by replaying ALL applied fixes in order.
+    # This guarantees no fix is ever lost due to Streamlit reruns.
+    df = st.session_state.df_raw.copy()
+    for iss in issues:
+        if iss.get("decision") in ("apply", "custom"):
+            df = apply_fix(df, iss)
+    st.session_state.df_clean = df
 
-    st.session_state.issues             = issues
-    st.session_state.current_issue_idx  = idx + 1
+    st.session_state.issues            = issues
+    st.session_state.current_issue_idx = idx + 1
     st.rerun()
