@@ -90,8 +90,8 @@ def detect_issues(df: pd.DataFrame) -> list:
             violations = (vc > 1).sum()
             if violations > 0:
                 add("critical", "Primary Key Violations", col,
-                    f"{violations} duplicate values found in `{col}` — expected unique.",
-                    "Investigate duplicates; keep most recent or merge records.",
+                    f"{violations} duplicate ID value(s) found in `{col}` — each ID should appear only once.",
+                    "Find the duplicate entry and correct or reassign just that one ID — do not renumber existing records.",
                     "integrity")
 
     # 3. Completely empty columns
@@ -112,7 +112,7 @@ def detect_issues(df: pd.DataFrame) -> list:
 
     # 5. Corrupted / Excel error values
     for col in df.columns:
-        if df[col].dtype == object:
+        if pd.api.types.is_string_dtype(df[col]) or df[col].dtype == object:
             mask = df[col].astype(str).isin(EXCEL_ERRORS)
             if mask.any():
                 vals = df.loc[mask, col].unique().tolist()
@@ -130,7 +130,7 @@ def detect_issues(df: pd.DataFrame) -> list:
 
     # 7. Multiple / repeated header rows mid-file
     for col in df.columns:
-        if df[col].dtype == object:
+        if pd.api.types.is_string_dtype(df[col]) or df[col].dtype == object:
             matches = (df[col].astype(str).str.strip() == str(col).strip()).sum()
             if matches > 0:
                 add("critical", "Repeated Header Row Mid-File", col,
@@ -140,7 +140,7 @@ def detect_issues(df: pd.DataFrame) -> list:
 
     # 8. Mixed delimiters detected (hard to catch post-parse, flag as warning)
     for col in df.columns:
-        if df[col].dtype == object:
+        if pd.api.types.is_string_dtype(df[col]) or df[col].dtype == object:
             has_semi = df[col].astype(str).str.contains(";", na=False).sum()
             has_pipe = df[col].astype(str).str.contains(r"\|", na=False, regex=True).sum()
             if has_semi > len(df) * 0.3 or has_pipe > len(df) * 0.3:
@@ -169,25 +169,51 @@ def detect_issues(df: pd.DataFrame) -> list:
                 "dtypes")
 
     # 11. Impossible / out-of-range values
+    # Only flag columns where we know the domain has hard limits
+    DOMAIN_LIMITS = {
+        "age":          (1, 110),
+        "years_at":     (0, 50),
+        "tenure":       (0, 50),
+        "experience":   (0, 50),
+        "year":         (1900, 2100),
+        "rating":       (1, 10),
+        "satisfaction": (1, 10),
+        "score":        (0, 100),
+        "percent":      (0, 100),
+        "pct":          (0, 100),
+        "quantity":     (0, 100000),
+        "qty":          (0, 100000),
+        "count":        (0, 10000000),
+        "distance":     (0, 100000),
+        "duration":     (0, 100000),
+        "hours":        (0, 24),
+        "days":         (0, 366),
+        "months":       (0, 12),
+        "years_at":     (0, 50),
+        "tenure":       (0, 50),
+        "experience":   (0, 50),
+    }
     for col in df.columns:
+        col_lower = col.lower()
+        matched_limit = None
+        for keyword, (lo, hi) in DOMAIN_LIMITS.items():
+            if keyword in col_lower:
+                matched_limit = (lo, hi)
+                break
+        if matched_limit is None:
+            continue  # don't flag salary, income, revenue etc — no hard limit
         numeric_col = pd.to_numeric(df[col], errors="coerce")
-        if numeric_col.notna().sum() < 10:
+        if numeric_col.notna().sum() < 5:
             continue
-        q1, q99 = numeric_col.quantile(0.01), numeric_col.quantile(0.99)
-        iqr = numeric_col.quantile(0.75) - numeric_col.quantile(0.25)
-        # Skip low-range columns like ratings/scores (range < 20) — not "impossible"
-        col_range = numeric_col.max() - numeric_col.min()
-        if col_range < 20 and numeric_col.max() <= 100:
-            continue
-        if q99 <= 0:
-            continue
-        extreme = ((numeric_col < q1 * 10) | (numeric_col > q99 * 10)) & numeric_col.notna()
-        n_extreme = int(extreme.sum())
-        if n_extreme > 0:
-            add("high", "Extreme / Impossible Values", col,
-                f"{n_extreme} values far outside expected range in `{col}`. Min: {numeric_col.min()}, Max: {numeric_col.max()}.",
-                "Cap at 1st/99th percentile or investigate and remove if confirmed erroneous.",
-                "outliers")
+        lo, hi = matched_limit
+        out_of_range = ((numeric_col < lo) | (numeric_col > hi)) & numeric_col.notna()
+        n_bad = int(out_of_range.sum())
+        if n_bad > 0:
+            bad_vals = numeric_col[out_of_range].unique()[:3].tolist()
+            add("high", "Impossible / Out-of-Range Values", col,
+                f"{n_bad} value(s) in `{col}` outside the valid range [{lo}, {hi}]. Examples: {bad_vals}.",
+                f"Replace out-of-range values with NaN and investigate the source.",
+                "validity")
 
     # 12. Negative values in non-negative columns
     NON_NEG_KEYWORDS = [
@@ -259,7 +285,7 @@ def detect_issues(df: pd.DataFrame) -> list:
 
     # 17. String tokens in numeric columns
     for col in df.columns:
-        if df[col].dtype == object:
+        if pd.api.types.is_string_dtype(df[col]) or df[col].dtype == object:
             null_like = df[col].astype(str).str.lower().isin(["n/a", "na", "none", "null", "unknown", "-", "--", "?", "nil"])
             n = null_like.sum()
             if n > 0:
@@ -271,7 +297,7 @@ def detect_issues(df: pd.DataFrame) -> list:
     # ── 🟡 MEDIUM ─────────────────────────────────────────────────────────────
 
     for col in df.columns:
-        if df[col].dtype == object:
+        if pd.api.types.is_string_dtype(df[col]) or df[col].dtype == object:
 
             # 18. Inconsistent categories
             uniq = df[col].dropna().unique()
@@ -371,7 +397,7 @@ def detect_issues(df: pd.DataFrame) -> list:
     # 27. Mixed date formats
     for col in df.columns:
         if any(k in col.lower() for k in ["date", "time", "day", "month", "year"]):
-            if df[col].dtype == object:
+            if pd.api.types.is_string_dtype(df[col]) or df[col].dtype == object:
                 formats_seen = set()
                 for v in df[col].dropna().astype(str)[:100]:
                     fmt = _detect_date_format(v)
@@ -446,7 +472,7 @@ def detect_issues(df: pd.DataFrame) -> list:
 
     # 32. Low variance columns
     for col in df.columns:
-        if df[col].dtype == object:
+        if pd.api.types.is_string_dtype(df[col]) or df[col].dtype == object:
             top_freq = df[col].value_counts(normalize=True).iloc[0] if df[col].notna().any() else 0
             if top_freq > 0.99:
                 add("low", "Near-Constant Column", col,
@@ -456,7 +482,7 @@ def detect_issues(df: pd.DataFrame) -> list:
 
     # 33. Near-100% unique columns (likely IDs mislabeled)
     for col in df.columns:
-        if df[col].dtype == object:
+        if pd.api.types.is_string_dtype(df[col]) or df[col].dtype == object:
             uniq_ratio = df[col].nunique() / max(len(df[col].dropna()), 1)
             if uniq_ratio > 0.95 and not any(k in col.lower() for k in ["id", "key", "uuid", "name", "email"]):
                 add("low", "Suspiciously High Cardinality", col,
@@ -534,16 +560,19 @@ def detect_issues(df: pd.DataFrame) -> list:
             "Rename or drop duplicate columns before analysis.",
             "structure")
 
-    # 41. Columns that are subsets of other columns
+    # 41. Columns that are subsets of other columns (year/month/day only, not income/amount)
     for col in df.columns:
-        if any(k in col.lower() for k in ["year", "month", "day"]):
+        col_lower = col.lower()
+        # Only flag if the column name is PURELY a date component word, not a financial column
+        is_pure_date_component = any(col_lower in [k, k+"s"] for k in ["year", "month", "day", "week", "quarter"])
+        if is_pure_date_component:
             date_cols = [c for c in df.columns if "date" in c.lower()]
             if date_cols:
                 add("low", "Redundant Date Component Column", col,
                     f"`{col}` may be derivable from `{date_cols[0]}` — storing both is redundant.",
                     f"Consider dropping `{col}` and deriving it from `{date_cols[0]}` when needed.",
                     "redundancy")
-                break  # one warning is enough
+                break
 
     # 42. Columns with high null rate (not yet flagged as critical/high)
     for col in df.columns:
