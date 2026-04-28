@@ -22,10 +22,13 @@ def show_landing():
                     st.warning(f"Large file detected ({len(df):,} rows). Sampling 50,000 rows for analysis.")
                     df = df.sample(50_000, random_state=42).reset_index(drop=True)
 
-                st.session_state.df_raw = df
-                st.session_state.df_clean = df.copy()
-                st.session_state.dataset_name = uploaded.name
-                _show_preview(df)
+                # Only set if this is a new file
+                if st.session_state.dataset_name != uploaded.name:
+                    st.session_state.df_raw     = df
+                    st.session_state.df_clean   = df.copy()
+                    st.session_state.dataset_name = uploaded.name
+
+                _show_preview(st.session_state.df_raw)
 
                 if st.button("🔍 Analyze My Data", type="primary", use_container_width=True):
                     st.session_state.phase = "analysis"
@@ -36,19 +39,23 @@ def show_landing():
 
     with tab_demo:
         st.markdown("**No dataset handy? Pick one of our pre-loaded examples.**")
-        st.caption("Each demo dataset is pre-seeded with realistic data quality issues across all severity levels.")
+        st.caption("Pre-seeded with realistic data quality issues across all severity levels.")
 
         choice = st.selectbox("Choose a demo dataset:", list(DEMO_DATASETS.keys()))
 
         if st.button("Load Demo Dataset", use_container_width=True):
             key = DEMO_DATASETS[choice]
-            df = load_demo(key)
-            st.session_state.df_raw = df
-            st.session_state.df_clean = df.copy()
+            df  = load_demo(key)
+            # Always load fresh — user explicitly clicked Load
+            st.session_state.df_raw       = df
+            st.session_state.df_clean     = df.copy()
             st.session_state.dataset_name = choice
-            _show_preview(df)
+            st.session_state.issues       = []   # reset any prior analysis
+            st.session_state.current_issue_idx = 0
+            st.rerun()
 
-        if st.session_state.df_raw is not None and st.session_state.dataset_name == choice:
+        if st.session_state.df_raw is not None:
+            _show_preview(st.session_state.df_raw)
             if st.button("🔍 Analyze This Dataset", type="primary", use_container_width=True):
                 st.session_state.phase = "analysis"
                 st.rerun()
@@ -57,9 +64,8 @@ def show_landing():
 def _show_preview(df: pd.DataFrame):
     st.divider()
     col1, col2, col3 = st.columns(3)
-    col1.metric("Rows", f"{df.shape[0]:,}")
-    col2.metric("Columns", df.shape[1])
+    col1.metric("Rows",           f"{df.shape[0]:,}")
+    col2.metric("Columns",        df.shape[1])
     col3.metric("Missing Values", f"{df.isna().sum().sum():,}")
-
     st.markdown("**Preview (first 5 rows)**")
     st.dataframe(df.head(), use_container_width=True)
